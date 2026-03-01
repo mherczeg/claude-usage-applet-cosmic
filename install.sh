@@ -7,6 +7,9 @@ DESKTOP_DIR="/usr/share/applications"
 
 echo "── Claude Usage Applet Installer ──"
 
+# Ensure cargo is in PATH
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+
 # Build release binary
 echo "Building release binary…"
 cd "$SCRIPT_DIR"
