@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Claude Usage
+Type=Application
+Exec=claude-usage-applet
+Terminal=false
+Categories=COSMIC;
+Keywords=COSMIC;Claude;Usage;
+Icon=utilities-system-monitor-symbolic
+StartupNotify=true
+NoDisplay=true
+X-CosmicApplet=true
+X-CosmicHoverPopup=End
+X-OverflowPriority=10
