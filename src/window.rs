@@ -1,7 +1,7 @@
 use cosmic::app::Core;
 use cosmic::iced::platform_specific::shell::commands::popup::{destroy_popup, get_popup};
 use cosmic::iced::window::Id;
-use cosmic::iced::Limits;
+use cosmic::iced::{Color, Limits};
 use cosmic::iced_runtime::core::window;
 use cosmic::widget;
 use cosmic::{Action, Element, Task};
@@ -142,20 +142,40 @@ impl cosmic::Application for Window {
         Task::none()
     }
 
-    // Panel icon — shows usage percentage as text
+    // Panel icon — shows usage percentage as bold text with colored background
     fn view(&self) -> Element<'_, Self::Message> {
-        let label = match &self.usage_data {
+        let (label, bg_color) = match &self.usage_data {
             Some(data) => match &data.five_hour {
-                Some(limit) => format!("{:.0}%", limit.utilization),
-                None => "—%".to_string(),
+                Some(limit) => {
+                    let pct = limit.utilization;
+                    let color = usage_color(pct);
+                    (format!("{:.0}%", pct), color)
+                }
+                None => ("—%".to_string(), Color::from_rgba(0.5, 0.5, 0.5, 0.4)),
             },
-            None => "…%".to_string(),
+            None => ("…%".to_string(), Color::from_rgba(0.5, 0.5, 0.5, 0.4)),
         };
 
-        widget::button::custom(widget::text::body(label))
-            .on_press(Message::TogglePopup)
-            .class(cosmic::theme::Button::AppletIcon)
-            .into()
+        let text = widget::text::heading(label);
+
+        widget::button::custom(
+            widget::container(text)
+                .padding([2, 8])
+                .class(cosmic::theme::Container::custom(move |_theme| {
+                    cosmic::widget::container::Style {
+                        background: Some(bg_color.into()),
+                        border: cosmic::iced::Border {
+                            radius: 6.0.into(),
+                            ..Default::default()
+                        },
+                        text_color: Some(Color::WHITE),
+                        ..Default::default()
+                    }
+                })),
+        )
+        .on_press(Message::TogglePopup)
+        .class(cosmic::theme::Button::AppletIcon)
+        .into()
     }
 
     // Popup with usage details
@@ -183,10 +203,30 @@ impl cosmic::Application for Window {
                 if let Some(limit) = limit {
                     let pct = limit.utilization;
                     let resets = api::format_reset_time(&limit.resets_at);
-                    content = content.add(widget::settings::item(
-                        *name,
-                        widget::text::body(format!("{pct:.1}%  ↻ {resets}")),
-                    ));
+                    let color = usage_color(pct);
+
+                    content = content.add(widget::column()
+                        .spacing(4)
+                        .push(widget::row()
+                            .push(widget::text::heading(*name))
+                            .push(widget::horizontal_space())
+                            .push(widget::text::heading(format!("{pct:.1}%")))
+                        )
+                        .push(widget::progress_bar(0.0..=100.0, pct as f32)
+                            .class(cosmic::theme::ProgressBar::custom(move |theme| {
+                                let cosmic = theme.cosmic();
+                                widget::progress_bar::Style {
+                                    background: Color::from(cosmic.background.divider).into(),
+                                    bar: color.into(),
+                                    border: cosmic::iced::Border {
+                                        radius: cosmic.corner_radii.radius_xl.into(),
+                                        ..Default::default()
+                                    },
+                                }
+                            }))
+                        )
+                        .push(widget::text::caption(format!("Resets in {resets}")))
+                    );
                 }
             }
         } else if self.loading {
@@ -204,5 +244,16 @@ impl cosmic::Application for Window {
         );
 
         self.core.applet.popup_container(content).into()
+    }
+}
+
+/// Green → Yellow → Red based on usage percentage.
+fn usage_color(pct: f64) -> Color {
+    if pct >= 80.0 {
+        Color::from_rgb(0.90, 0.20, 0.20) // red
+    } else if pct >= 50.0 {
+        Color::from_rgb(0.95, 0.75, 0.10) // yellow/amber
+    } else {
+        Color::from_rgb(0.20, 0.78, 0.35) // green
     }
 }
