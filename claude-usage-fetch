@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+"""Fetch Claude Code Max plan usage from the Anthropic API."""
+
+import json
+import time
+import urllib.request
+import urllib.error
+from pathlib import Path
+from datetime import datetime, timezone
+
+CREDENTIALS_PATH = Path.home() / ".claude" / ".credentials.json"
+TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
+USAGE_URL = "https://api.anthropic.com/api/oauth/usage"
+CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+BETA_HEADER = "oauth-2025-04-20"
+
+
+def load_credentials():
+    with open(CREDENTIALS_PATH) as f:
+        return json.load(f)
+
+
+def save_credentials(creds):
+    with open(CREDENTIALS_PATH, "w") as f:
+        json.dump(creds, f, indent=2)
+
+
+def is_token_expired(creds):
+    expires_at = creds["claudeAiOauth"]["expiresAt"]
+    return time.time() * 1000 >= expires_at
+
+
+def refresh_token(creds):
+    oauth = creds["claudeAiOauth"]
+    payload = json.dumps({
+        "grant_type": "refresh_token",
+        "refresh_token": oauth["refreshToken"],
+        "client_id": CLIENT_ID,
+        "scope": " ".join(oauth.get("scopes", [])),
+    }).encode()
+
+    req = urllib.request.Request(
+        TOKEN_URL,
+        data=payload,
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        data = json.loads(resp.read())
+
+    oauth["accessToken"] = data["access_token"]
+    oauth["refreshToken"] = data.get("refresh_token", oauth["refreshToken"])
+    oauth["expiresAt"] = int(time.time() * 1000) + data["expires_in"] * 1000
+    if "scope" in data:
+        oauth["scopes"] = data["scope"].split()
+
+    save_credentials(creds)
+    print("Token refreshed successfully.")
+    return creds
+
+
+def get_access_token():
+    creds = load_credentials()
+    if is_token_expired(creds):
+        print("Token expired, refreshing...")
+        creds = refresh_token(creds)
+    return creds["claudeAiOauth"]["accessToken"]
+
+
+def fetch_usage():
+    token = get_access_token()
+    req = urllib.request.Request(
+        USAGE_URL,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+            "User-Agent": "claude-usage-applet/1.0",
+            "anthropic-beta": BETA_HEADER,
+        },
+    )
+    with urllib.request.urlopen(req, timeout=10) as resp:
+        return json.loads(resp.read())
+
+
+def format_reset_time(iso_str):
+    reset = datetime.fromisoformat(iso_str)
+    now = datetime.now(timezone.utc)
+    delta = reset - now
+    total_sec = int(delta.total_seconds())
+    if total_sec <= 0:
+        return "now"
+    hours, remainder = divmod(total_sec, 3600)
+    minutes = remainder // 60
+    if hours > 24:
+        days = hours // 24
+        return f"{days}d {hours % 24}h"
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
+
+
+def display_usage(data):
+    limits = [
+        ("5-hour window", data.get("five_hour")),
+        ("7-day total", data.get("seven_day")),
+        ("7-day Sonnet", data.get("seven_day_sonnet")),
+        ("7-day Opus", data.get("seven_day_opus")),
+        ("7-day OAuth apps", data.get("seven_day_oauth_apps")),
+        ("7-day Cowork", data.get("seven_day_cowork")),
+    ]
+
+    print("\n╔══════════════════════════════════════════╗")
+    print("║       Claude Code Max — Usage            ║")
+    print("╠══════════════════════════════════════════╣")
+
+    for name, limit in limits:
+        if limit is None:
+            continue
+        pct = limit["utilization"]
+        resets = format_reset_time(limit["resets_at"])
+        bar_len = 20
+        filled = int(pct / 100 * bar_len)
+        bar = "█" * filled + "░" * (bar_len - filled)
+        print(f"║  {name:<16} {bar} {pct:5.1f}%  ↻ {resets:<6} ║")
+
+    extra = data.get("extra_usage", {})
+    if extra and extra.get("is_enabled"):
+        print(f"║  {'Extra usage':<16} enabled                    ║")
+
+    print("╚══════════════════════════════════════════╝")
+
+
+if __name__ == "__main__":
+    try:
+        data = fetch_usage()
+        display_usage(data)
+    except urllib.error.HTTPError as e:
+        print(f"HTTP Error {e.code}: {e.reason}")
+        print(e.read().decode()[:500])
+    except Exception as e:
+        print(f"Error: {e}")
