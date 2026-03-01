@@ -156,11 +156,11 @@ impl cosmic::Application for Window {
             None => ("…%".to_string(), Color::from_rgba(0.5, 0.5, 0.5, 0.4)),
         };
 
-        let text = widget::text::heading(label);
+        let text = widget::text::caption_heading(label);
 
         widget::button::custom(
             widget::container(text)
-                .padding([2, 8])
+                .padding([1, 6])
                 .class(cosmic::theme::Container::custom(move |_theme| {
                     cosmic::widget::container::Style {
                         background: Some(bg_color.into()),
@@ -250,10 +250,10 @@ impl cosmic::Application for Window {
 /// Green → Yellow → Red based on usage percentage.
 fn usage_color(pct: f64) -> Color {
     if pct >= 80.0 {
-        Color::from_rgb(0.90, 0.20, 0.20) // red
+        Color::from_rgb(0.70, 0.12, 0.12) // dark red
     } else if pct >= 50.0 {
-        Color::from_rgb(0.95, 0.75, 0.10) // yellow/amber
+        Color::from_rgb(0.72, 0.55, 0.05) // dark amber
     } else {
-        Color::from_rgb(0.20, 0.78, 0.35) // green
+        Color::from_rgb(0.12, 0.55, 0.22) // dark green
     }
 }
