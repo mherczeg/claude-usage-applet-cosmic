@@ -135,6 +135,7 @@ impl cosmic::Application for Window {
                     }
                     Err(e) => {
                         self.error = Some(e);
+                        self.usage_data = None;
                     }
                 }
             }
@@ -145,14 +146,11 @@ impl cosmic::Application for Window {
     // Panel icon — shows usage percentage as bold text with colored background
     fn view(&self) -> Element<'_, Self::Message> {
         let (label, bg_color) = match &self.usage_data {
-            Some(data) => match &data.five_hour {
-                Some(limit) => {
-                    let pct = limit.utilization;
-                    let color = usage_color(pct);
-                    (format!("{:.0}%", pct), color)
-                }
-                None => ("—%".to_string(), Color::from_rgba(0.5, 0.5, 0.5, 0.4)),
-            },
+            Some(data) => {
+                let pct = data.five_hour.as_ref().map_or(0.0, |l| l.utilization);
+                let color = usage_color(pct);
+                (format!("{:.0}%", pct), color)
+            }
             None => ("…%".to_string(), Color::from_rgba(0.5, 0.5, 0.5, 0.4)),
         };
 
@@ -199,6 +197,8 @@ impl cosmic::Application for Window {
                 ("7-day Opus", &data.seven_day_opus),
             ];
 
+            let has_any_limit = limits.iter().any(|(_, l)| l.is_some());
+
             for (name, limit) in limits {
                 if let Some(limit) = limit {
                     let pct = limit.utilization;
@@ -228,6 +228,12 @@ impl cosmic::Application for Window {
                         .push(widget::text::caption(format!("Resets in {resets}")))
                     );
                 }
+            }
+            if !has_any_limit {
+                content = content.add(widget::settings::item(
+                    "Status",
+                    widget::text::body("No active usage"),
+                ));
             }
         } else if self.loading {
             content = content.add(widget::settings::item(

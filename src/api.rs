@@ -149,7 +149,11 @@ pub async fn fetch_usage() -> Result<UsageData, String> {
         return Err(format!("usage API returned {}", resp.status()));
     }
 
-    resp.json().await.map_err(|e| format!("usage response: {e}"))
+    let text = resp.text().await.map_err(|e| format!("usage response: {e}"))?;
+    if text.is_empty() || text.trim() == "null" {
+        return Ok(UsageData::default());
+    }
+    serde_json::from_str(&text).map_err(|e| format!("usage parse: {e}"))
 }
 
 pub fn format_reset_time(iso_str: &str) -> String {
