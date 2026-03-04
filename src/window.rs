@@ -147,7 +147,9 @@ impl cosmic::Application for Window {
     fn view(&self) -> Element<'_, Self::Message> {
         let (label, bg_color) = match &self.usage_data {
             Some(data) => {
-                let pct = data.five_hour.as_ref().map_or(0.0, |l| l.utilization);
+                let pct = data.five_hour.as_ref()
+                    .map(|l| l.utilization)
+                    .unwrap_or(0.0);
                 let color = usage_color(pct);
                 (format!("{:.0}%", pct), color)
             }
@@ -202,7 +204,9 @@ impl cosmic::Application for Window {
             for (name, limit) in limits {
                 if let Some(limit) = limit {
                     let pct = limit.utilization;
-                    let resets = api::format_reset_time(&limit.resets_at);
+                    let resets = limit.resets_at.as_deref()
+                        .map(api::format_reset_time)
+                        .unwrap_or_else(|| "—".to_string());
                     let color = usage_color(pct);
 
                     content = content.add(widget::column()

@@ -50,7 +50,7 @@ pub struct UsageData {
 #[derive(Deserialize, Clone, Debug)]
 pub struct UsageLimit {
     pub utilization: f64,
-    pub resets_at: String,
+    pub resets_at: Option<String>,
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────
