@@ -133,27 +133,49 @@ async fn get_access_token() -> Result<String, String> {
 
 pub async fn fetch_usage() -> Result<UsageData, String> {
     let token = get_access_token().await?;
-
     let client = reqwest::Client::new();
-    let resp = client
-        .get(USAGE_URL)
-        .header("Authorization", format!("Bearer {token}"))
-        .header("Content-Type", "application/json")
-        .header("User-Agent", "claude-usage-applet/1.0")
-        .header("anthropic-beta", BETA_HEADER)
-        .send()
-        .await
-        .map_err(|e| format!("usage request: {e}"))?;
 
-    if !resp.status().is_success() {
-        return Err(format!("usage API returned {}", resp.status()));
+    let mut delay_secs = 2u64;
+    for attempt in 0..4 {
+        let resp = client
+            .get(USAGE_URL)
+            .header("Authorization", format!("Bearer {token}"))
+            .header("Content-Type", "application/json")
+            .header("User-Agent", "claude-usage-applet/1.0")
+            .header("anthropic-beta", BETA_HEADER)
+            .send()
+            .await
+            .map_err(|e| format!("usage request: {e}"))?;
+
+        if resp.status() == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            // Respect Retry-After header if present, otherwise use exponential backoff
+            let wait = resp
+                .headers()
+                .get("retry-after")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.parse::<u64>().ok())
+                .unwrap_or(delay_secs);
+
+            if attempt < 3 {
+                tokio::time::sleep(std::time::Duration::from_secs(wait)).await;
+                delay_secs *= 2;
+                continue;
+            }
+            return Err("rate-limited (429) — retries exhausted, will retry next poll".into());
+        }
+
+        if !resp.status().is_success() {
+            return Err(format!("usage API returned {}", resp.status()));
+        }
+
+        let text = resp.text().await.map_err(|e| format!("usage response: {e}"))?;
+        if text.is_empty() || text.trim() == "null" {
+            return Ok(UsageData::default());
+        }
+        return serde_json::from_str(&text).map_err(|e| format!("usage parse: {e}"));
     }
 
-    let text = resp.text().await.map_err(|e| format!("usage response: {e}"))?;
-    if text.is_empty() || text.trim() == "null" {
-        return Ok(UsageData::default());
-    }
-    serde_json::from_str(&text).map_err(|e| format!("usage parse: {e}"))
+    Err("rate-limited (429) — retries exhausted, will retry next poll".into())
 }
 
 pub fn format_reset_time(iso_str: &str) -> String {

@@ -1,3 +1,4 @@
+use chrono::{DateTime, Utc};
 use cosmic::app::Core;
 use cosmic::iced::platform_specific::shell::commands::popup::{destroy_popup, get_popup};
 use cosmic::iced::window::Id;
@@ -9,7 +10,7 @@ use cosmic::{Action, Element, Task};
 use crate::api;
 
 pub const APP_ID: &str = "com.github.mherczeg.claude-usage-applet";
-const POLL_SECONDS: u64 = 300;
+const POLL_SECONDS: u64 = 600;
 
 // ── Model ───────────────────────────────────────────────────────────────
 
@@ -19,6 +20,7 @@ pub struct Window {
     usage_data: Option<api::UsageData>,
     error: Option<String>,
     loading: bool,
+    next_reset_at: Option<DateTime<Utc>>,
 }
 
 impl Default for Window {
@@ -29,6 +31,7 @@ impl Default for Window {
             usage_data: None,
             error: None,
             loading: true,
+            next_reset_at: None,
         }
     }
 }
@@ -40,6 +43,7 @@ pub enum Message {
     TogglePopup,
     PopupClosed(Id),
     Tick,
+    CheckReset,
     Refresh,
     UsageLoaded(Result<api::UsageData, String>),
 }
@@ -81,10 +85,14 @@ impl cosmic::Application for Window {
         Some(Message::PopupClosed(id))
     }
 
-    // Periodic poll subscription
+    // Periodic poll + reset-time watcher
     fn subscription(&self) -> cosmic::iced::Subscription<Self::Message> {
-        cosmic::iced::time::every(std::time::Duration::from_secs(POLL_SECONDS))
-            .map(|_| Message::Tick)
+        cosmic::iced::Subscription::batch([
+            cosmic::iced::time::every(std::time::Duration::from_secs(POLL_SECONDS))
+                .map(|_| Message::Tick),
+            cosmic::iced::time::every(std::time::Duration::from_secs(60))
+                .map(|_| Message::CheckReset),
+        ])
     }
 
     fn update(&mut self, message: Self::Message) -> Task<Action<Self::Message>> {
@@ -118,6 +126,19 @@ impl cosmic::Application for Window {
                     self.popup = None;
                 }
             }
+            Message::CheckReset => {
+                if let Some(reset_at) = self.next_reset_at {
+                    if Utc::now() >= reset_at + chrono::Duration::minutes(1) {
+                        self.next_reset_at = None;
+                        self.loading = true;
+                        return Task::future(async {
+                            let result = api::fetch_usage().await;
+                            Message::UsageLoaded(result)
+                        })
+                        .map(cosmic::Action::from);
+                    }
+                }
+            }
             Message::Tick | Message::Refresh => {
                 self.loading = true;
                 return Task::future(async {
@@ -130,12 +151,26 @@ impl cosmic::Application for Window {
                 self.loading = false;
                 match result {
                     Ok(data) => {
+                        // Track the earliest upcoming reset for a post-reset refresh
+                        self.next_reset_at = [
+                            data.five_hour.as_ref(),
+                            data.seven_day.as_ref(),
+                            data.seven_day_sonnet.as_ref(),
+                            data.seven_day_opus.as_ref(),
+                        ]
+                        .iter()
+                        .filter_map(|l| l.and_then(|l| l.resets_at.as_deref()))
+                        .filter_map(|s| DateTime::parse_from_rfc3339(s).ok())
+                        .map(|dt| dt.with_timezone(&Utc))
+                        .filter(|&dt| dt > Utc::now())
+                        .min();
+
                         self.usage_data = Some(data);
                         self.error = None;
                     }
                     Err(e) => {
                         self.error = Some(e);
-                        self.usage_data = None;
+                        // Keep stale usage_data so the popup still shows last-known values
                     }
                 }
             }
