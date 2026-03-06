@@ -21,6 +21,7 @@ pub struct Window {
     error: Option<String>,
     loading: bool,
     next_reset_at: Option<DateTime<Utc>>,
+    paused: bool,
 }
 
 impl Default for Window {
@@ -32,6 +33,7 @@ impl Default for Window {
             error: None,
             loading: true,
             next_reset_at: None,
+            paused: false,
         }
     }
 }
@@ -45,6 +47,7 @@ pub enum Message {
     Tick,
     CheckReset,
     Refresh,
+    TogglePause,
     UsageLoaded(Result<api::UsageData, String>),
 }
 
@@ -87,6 +90,9 @@ impl cosmic::Application for Window {
 
     // Periodic poll + reset-time watcher
     fn subscription(&self) -> cosmic::iced::Subscription<Self::Message> {
+        if self.paused {
+            return cosmic::iced::Subscription::none();
+        }
         cosmic::iced::Subscription::batch([
             cosmic::iced::time::every(std::time::Duration::from_secs(POLL_SECONDS))
                 .map(|_| Message::Tick),
@@ -127,6 +133,9 @@ impl cosmic::Application for Window {
                 }
             }
             Message::CheckReset => {
+                if self.paused {
+                    return Task::none();
+                }
                 if let Some(reset_at) = self.next_reset_at {
                     if Utc::now() >= reset_at + chrono::Duration::minutes(1) {
                         self.next_reset_at = None;
@@ -139,13 +148,27 @@ impl cosmic::Application for Window {
                     }
                 }
             }
-            Message::Tick | Message::Refresh => {
+            Message::Tick => {
+                if self.paused {
+                    return Task::none();
+                }
                 self.loading = true;
                 return Task::future(async {
                     let result = api::fetch_usage().await;
                     Message::UsageLoaded(result)
                 })
                 .map(cosmic::Action::from);
+            }
+            Message::Refresh => {
+                self.loading = true;
+                return Task::future(async {
+                    let result = api::fetch_usage().await;
+                    Message::UsageLoaded(result)
+                })
+                .map(cosmic::Action::from);
+            }
+            Message::TogglePause => {
+                self.paused = !self.paused;
             }
             Message::UsageLoaded(result) => {
                 self.loading = false;
@@ -180,15 +203,23 @@ impl cosmic::Application for Window {
 
     // Panel icon — shows usage percentage as bold text with colored background
     fn view(&self) -> Element<'_, Self::Message> {
-        let (label, bg_color) = match &self.usage_data {
-            Some(data) => {
-                let pct = data.five_hour.as_ref()
-                    .map(|l| l.utilization)
-                    .unwrap_or(0.0);
-                let color = usage_color(pct);
-                (format!("{:.0}%", pct), color)
+        let (label, bg_color) = if self.paused {
+            let pct_label = self.usage_data.as_ref()
+                .and_then(|d| d.five_hour.as_ref())
+                .map(|l| format!("{:.0}%", l.utilization))
+                .unwrap_or_else(|| "…%".to_string());
+            (pct_label, Color::from_rgb(0.25, 0.35, 0.60)) // muted blue when paused
+        } else {
+            match &self.usage_data {
+                Some(data) => {
+                    let pct = data.five_hour.as_ref()
+                        .map(|l| l.utilization)
+                        .unwrap_or(0.0);
+                    let color = usage_color(pct);
+                    (format!("{:.0}%", pct), color)
+                }
+                None => ("…%".to_string(), Color::from_rgba(0.5, 0.5, 0.5, 0.4)),
             }
-            None => ("…%".to_string(), Color::from_rgba(0.5, 0.5, 0.5, 0.4)),
         };
 
         let text = widget::text::caption_heading(label);
@@ -281,12 +312,21 @@ impl cosmic::Application for Window {
             ));
         }
 
-        // Refresh button
-        let refresh_label = if self.loading { "Refreshing…" } else { "↻ Refresh" };
+        // Pause / Resume toggle
+        let pause_label = if self.paused { "▶ Resume polling" } else { "⏸ Pause polling" };
         content = content.add(
-            widget::button::standard(refresh_label)
-                .on_press(Message::Refresh),
+            widget::button::standard(pause_label)
+                .on_press(Message::TogglePause),
         );
+
+        // Refresh button (disabled while paused)
+        let refresh_label = if self.loading { "Refreshing…" } else { "↻ Refresh" };
+        let refresh_btn = widget::button::standard(refresh_label);
+        content = content.add(if self.paused {
+            refresh_btn
+        } else {
+            refresh_btn.on_press(Message::Refresh)
+        });
 
         self.core.applet.popup_container(content).into()
     }
