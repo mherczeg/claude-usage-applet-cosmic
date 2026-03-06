@@ -8,8 +8,9 @@ The applet shows your current 5-hour utilization as a color-coded percentage bad
 
 - **Panel badge** — shows 5-hour usage as a percentage with a green / amber / red background
 - **Popup details** — 5-hour window, 7-day total, 7-day Sonnet, and 7-day Opus usage with progress bars and reset countdowns
-- **Auto-refresh** — polls the Anthropic usage API every 5 minutes
+- **Auto-refresh** — polls the Anthropic usage API every 10 minutes
 - **Manual refresh** — click the ↻ Refresh button in the popup
+- **Shared panel state** — multiple panel instances reuse the same fetched data and paused state, avoiding duplicate API calls
 - **Token management** — automatically refreshes expired OAuth tokens using `~/.claude/.credentials.json`
 
 ## Prerequisites

@@ -39,7 +39,7 @@ struct TokenResponse {
 
 // ── Usage API response ──────────────────────────────────────────────────
 
-#[derive(Deserialize, Clone, Debug, Default)]
+#[derive(Deserialize, Serialize, Clone, Debug, Default)]
 pub struct UsageData {
     pub five_hour: Option<UsageLimit>,
     pub seven_day: Option<UsageLimit>,
@@ -47,7 +47,7 @@ pub struct UsageData {
     pub seven_day_opus: Option<UsageLimit>,
 }
 
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Serialize, Clone, Debug)]
 pub struct UsageLimit {
     pub utilization: f64,
     pub resets_at: Option<String>,
@@ -71,8 +71,7 @@ fn now_millis() -> u64 {
 
 fn load_credentials() -> Result<Credentials, String> {
     let path = credentials_path();
-    let data = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read credentials: {e}"))?;
+    let data = std::fs::read_to_string(&path).map_err(|e| format!("read credentials: {e}"))?;
     serde_json::from_str(&data).map_err(|e| format!("parse credentials: {e}"))
 }
 
@@ -85,11 +84,7 @@ fn save_credentials(creds: &Credentials) -> Result<(), String> {
 
 async fn refresh_token(creds: &mut Credentials) -> Result<(), String> {
     let oauth = &creds.claude_ai_oauth;
-    let scopes = oauth
-        .scopes
-        .as_deref()
-        .unwrap_or_default()
-        .join(" ");
+    let scopes = oauth.scopes.as_deref().unwrap_or_default().join(" ");
 
     let body = serde_json::json!({
         "grant_type": "refresh_token",
@@ -168,7 +163,10 @@ pub async fn fetch_usage() -> Result<UsageData, String> {
             return Err(format!("usage API returned {}", resp.status()));
         }
 
-        let text = resp.text().await.map_err(|e| format!("usage response: {e}"))?;
+        let text = resp
+            .text()
+            .await
+            .map_err(|e| format!("usage response: {e}"))?;
         if text.is_empty() || text.trim() == "null" {
             return Ok(UsageData::default());
         }
