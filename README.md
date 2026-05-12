@@ -19,6 +19,14 @@ The applet shows your current 5-hour utilization as a color-coded percentage bad
 - [Rust toolchain](https://rustup.rs/) (stable)
 - An active **Claude Code Max** subscription with credentials stored at `~/.claude/.credentials.json` (created automatically when you log in via [Claude Code](https://docs.anthropic.com/en/docs/claude-code))
 
+### System libraries
+
+The COSMIC/Wayland build dependencies (`xkbcommon` headers and `pkg-config`) must be installed before running `./install.sh`:
+
+- **Pop!_OS / Debian / Ubuntu:** `sudo apt install libxkbcommon-dev pkg-config`
+- **Fedora:** `sudo dnf install libxkbcommon-devel pkgconf-pkg-config`
+- **Arch:** `sudo pacman -S libxkbcommon pkgconf`
+
 ## Installation
 
 ```bash
