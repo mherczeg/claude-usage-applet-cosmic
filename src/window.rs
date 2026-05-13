@@ -204,6 +204,40 @@ where
     })
 }
 
+// A prior fetcher killed by SIGKILL (e.g. cosmic-panel reload) leaves
+// `loading: true` in the snapshot with no live fetch.lock to back it up,
+// blocking future `Initial` fetches forever. Clear it on startup.
+fn recover_stuck_loading() -> Result<(), String> {
+    let fetch_lock_path = shared_file_path(FETCH_LOCK_FILE_NAME)?;
+
+    let fetcher_alive = match fs::metadata(&fetch_lock_path) {
+        Ok(_) => !lock_is_stale(
+            &fetch_lock_path,
+            Duration::from_secs(FETCH_LOCK_STALE_SECONDS),
+        )?,
+        Err(e) if e.kind() == ErrorKind::NotFound => false,
+        Err(e) => {
+            return Err(format!(
+                "read fetch lock metadata {}: {e}",
+                fetch_lock_path.display()
+            ))
+        }
+    };
+
+    if fetcher_alive {
+        return Ok(());
+    }
+
+    with_state_lock(|| {
+        let mut snapshot = read_shared_snapshot()?;
+        if snapshot.loading {
+            snapshot.loading = false;
+            write_shared_snapshot(&snapshot)?;
+        }
+        Ok(())
+    })
+}
+
 fn should_fetch(snapshot: &SharedSnapshot, reason: FetchReason) -> bool {
     if snapshot.paused {
         return false;
@@ -368,6 +402,11 @@ impl cosmic::Application for Window {
             loading: true,
             ..Default::default()
         };
+
+        if let Err(error) = recover_stuck_loading() {
+            eprintln!("claude-usage-applet: recover_stuck_loading: {error}");
+        }
+
         window.sync_from_shared();
 
         let task = window.trigger_shared_fetch(FetchReason::Initial);
